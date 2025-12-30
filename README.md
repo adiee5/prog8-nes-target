@@ -14,14 +14,17 @@ You may replace `prog8c` with any kind of regular way you usually run the prog8 
 In case you have some kind of directory errors, such as in `.binary "../default-nrom.chr"` or regarding the `./libraries/nes` path, feel free to modify the .properties file and play with compiler options to fit your needs.
 
 ## TODO
+- Rework PPU request buffer ASAP!
+- Be up-to-date with prog8 (implement ZP_PTR register, parity of syslib etc.)
 - Implement `textio` library
 - `sprites` library: implement helpers for sprite combinations (16x16 sprites, 16x24, 16x16 using tall sprites, etc.)
 - MMC3 mapper config (or other mappers)
-- Some kind of set of subroutines, that allow for "building" a *PPU request*, so that one doesn't have to iterate over data multiple times
+[x] Some kind of set of subroutines, that allow for "building" a *PPU request*, so that one doesn't have to iterate over data multiple times
 - Regarding sound (low priority):
   - helpers functions for sound?
   - .nsf playback? if possible? (I think it isn't)
   - try to make use of FamiTracker's (and its forks') export options
+  - Famistudio export format and its playback library (looks good for what we are trying to accomplish here. There might be even a chance of getting the upstream support for prog8 if it gets popular enough in the NesDev community.)
 - Some stuff to make it easier to make VBlank handlers in Prog8 (like in cx16 target)
 - Other helpers like in other targets
 - Add more images to the default.chr

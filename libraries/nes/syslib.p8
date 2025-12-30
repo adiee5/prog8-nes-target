@@ -73,7 +73,7 @@ nes{
 
     uword nmi_vec = &nmi_handler
     uword irq_vec = &irq_handler
-    ubyte nmicheck ; a reliable way to check whether nmi has occured. works only if default nmi
+    bool nmicheck ; a reliable way to check whether nmi has occured. works only if default nmi
     uword postnmi_vec ; a pointer to a function to execute after the nmi
 
     ; internal functions for jumping to handlers defined by vector variables
@@ -91,7 +91,7 @@ nes{
     ; the default NMI handler of Prog8 programs. needed for all of the helper routines to work
     asmsub nmi_handler(){
         %asm{{
-            ; TODO
+            ; TODO?
             pha
             txa
             pha
@@ -163,16 +163,13 @@ nes{
 
         _endppurq
             stx ppurqfo
-            lda #0
-            sta ppurqfull
 
             lda temp_PPUSCROLL
             sta PPUSCROLL
             lda temp_PPUSCROLL+1
             sta PPUSCROLL
 
-            lda #$80
-            sta nes.nmicheck
+            inc nes.nmicheck
 
             ; run postnmi function, if exists
             lda postnmi_vec+1
@@ -202,26 +199,24 @@ nes{
 
     const uword PALETTES_PPUADDR = $3f00
 
-    ubyte[256] @shared ppurqbuf
+    ubyte[256] @shared ppurqbuf ; TODO - this has to be smaller ToT
     ubyte ppurqfi
     ubyte @shared ppurqfo
-    bool ppurqfull = false
+    ;bool ppurqfull = false ; yeah, it's actually useless, fi and fo can't overlap in any scenario (unless the request buffer is empty)
+    bool ppurqwip = false
 
     ; PPU send request functions. They tell the NMI handler to load data to PPU.
     ; they return false if the Request Buffer doesn't have enough space for the request
 
     ; sends a singular byte to the PPU
     sub ppu_sendrq_byte(uword ppuaddr, ubyte value) -> bool{
-        if ppurqbuffree() < 4{
+        if ppurqwip or ppurqbuffree() < 4{
             return false
         }
         ppurqbuf[ppurqfi+1]=msb(ppuaddr)
         ppurqbuf[ppurqfi+2]=lsb(ppuaddr)
         ppurqbuf[ppurqfi+3]=value
         ppurqbuf[ppurqfi+4]=0
-        if ppurqfi+4==ppurqfo{
-            ppurqfull=true
-        }
         ppurqbuf[ppurqfi]=1
         ppurqfi+=4
         return true
@@ -229,16 +224,13 @@ nes{
 
     ; sets specified amount of bytes in PPU to a specific value
     sub ppu_sendrq_memset(uword ppuaddr, ubyte length, ubyte value, bool vertical) -> bool{
-        if length >63 or ppurqbuffree() < 4{
+        if ppurqwip or length >63 or ppurqbuffree() < 4{
             return false
         }
         ppurqbuf[ppurqfi+1]=msb(ppuaddr)
         ppurqbuf[ppurqfi+2]=lsb(ppuaddr)
         ppurqbuf[ppurqfi+3]=value
         ppurqbuf[ppurqfi+4]=0
-        if ppurqfi+4==ppurqfo{
-            ppurqfull=true
-        }
         ppurqbuf[ppurqfi]=length|$40|((vertical as ubyte)<<7)
         ppurqfi+=4
         return true
@@ -246,7 +238,7 @@ nes{
 
     ; sends specified data. `data` argument is expected to be an array of values
     sub ppu_sendrq_data(uword ppuaddr, ubyte length, uword data, bool vertical) -> bool{
-        if length >63 or ppurqbuffree() < length+3{
+        if ppurqwip or length >63 or ppurqbuffree() < length+3{
             return false
         }
         ppurqbuf[ppurqfi+1]=msb(ppuaddr)
@@ -258,21 +250,65 @@ nes{
             cx16.r0L+=1
         }
         ppurqbuf[ppurqfi+length]=0
-        if ppurqfi+length==ppurqfo{
-            ppurqfull=true
-        }
         ppurqbuf[ppurqfi-3]=length|((vertical as ubyte)<<7)
         ppurqfi+=length
         return true
     }
 
     ; tells us how many free bytes are there in PPU request buffer
+    ; returned value is smaller by 1 from actual free space
     sub ppurqbuffree() -> ubyte{
-        if (ppurqfull) return 0
         if ppurqfi<ppurqfo{
-            return ppurqfo-ppurqfi
+            return ppurqfo-ppurqfi-1
         }
         return 255-(ppurqfi-ppurqfo)
+    }
+
+    ubyte ppurqfi_b
+
+    ; The functions bellow allow you to iteratively build a ppu request byte by byte.
+    ; Useful, if data length is unknown or calculating it requires iterating through elements
+    sub ppu_buildrq_start(uword ppuaddr, bool vertical) -> bool{
+        if ppurqwip or ppurqbuffree() < 5{
+            return false
+        }
+        ppurqwip=true
+        ppurqfi_b=ppurqfi+3
+        ppurqbuf[ppurqfi+1]=msb(ppuaddr)
+        ppurqbuf[ppurqfi+2]=lsb(ppuaddr)
+        ppurqbuf[ppurqfi]= if vertical 128 else 0
+        return true
+    }
+
+    sub ppu_buildrq_push(ubyte value) -> bool{
+        if not ppurqwip or ppurqfi_b+1==ppurqfo{
+            return false
+        }
+        if ppu_buildrq_len()+1>63{
+            return false
+        }
+        ppurqbuf[ppurqfi_b]=value
+        ppurqfi_b++
+        return true
+    }
+
+    sub ppu_buildrq_send(){
+        if (not ppurqwip) return
+        ppurqbuf[ppurqfi_b]=0
+        ppurqbuf[ppurqfi]|=ppu_buildrq_len()
+        ppurqfi=ppurqfi_b
+        ppurqwip=false
+    }
+
+    sub ppu_buildrq_cancel(){
+        ppurqwip=false
+    }
+
+    sub ppu_buildrq_len() -> ubyte{
+        if ppurqfi<ppurqfi_b {
+            return ppurqfi_b-ppurqfi-3
+        }
+        return 255-(ppurqfi-ppurqfi_b)-2
     }
 
     ; similar to ppu_sendrq functions, but loads data immediately, outside of VBlank.
@@ -407,11 +443,10 @@ sys{
 
     %asm{{
     waitvsync .macro
-    -   bit nes.nmicheck
-        bpl -
+        dec nes.nmicheck
         pha
-        lda #0
-        sta nes.nmicheck
+    -   lda nes.nmicheck
+        beq -
         pla
         .endmacro
     waitvsync2 .macro

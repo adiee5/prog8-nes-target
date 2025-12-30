@@ -5,6 +5,18 @@
 sprites{
     ubyte[256] @shared @alignpage OAM_buffer
 
+    ; sprite objects can be defined as a struct:
+    /*
+    struct Object{
+        ubyte ypos
+        ubyte graphic
+        ubyte attribs
+        ubyte xpos
+    }
+    */
+    ; This struct isn't defined by default, so that it won't generate errors on older compilers.
+    ; Codegen regarding structs at this moment are not good enough, but in the future, we could try making the struct syntax the basis of this library.
+
     %asm{{
     update  .macro
         lda #0
