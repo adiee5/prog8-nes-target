@@ -91,7 +91,12 @@ nes{
     ; the default NMI handler of Prog8 programs. needed for all of the helper routines to work
     asmsub nmi_handler(){
         %asm{{
-            ; TODO?
+        inx7 .macro
+            inx
+            bpl +
+            ldx #0
+        +
+            .endmacro
             pha
             txa
             pha
@@ -128,35 +133,35 @@ nes{
 
             and P8ZP_SCRATCH_REG
             tay
-            inx
+            #inx7
             lda ppurqbuf, x
             sta PPUADDR
-            inx
+            #inx7
             lda ppurqbuf, x
             sta PPUADDR
-            inx
+            #inx7
 
             lda ppurqbuf, x
         -   sta PPUDATA
             dey
             bne -
-            inx
+            #inx7
             jmp _ppurqloop
 
         _ppurqnormal
             and P8ZP_SCRATCH_REG
             tay
-            inx
+            #inx7
             lda ppurqbuf, x
             sta PPUADDR
-            inx
+            #inx7
             lda ppurqbuf, x
             sta PPUADDR
-            inx
+            #inx7
 
         -   lda ppurqbuf, x
             sta PPUDATA
-            inx
+            #inx7
             dey
             bne -
             jmp _ppurqloop
@@ -199,7 +204,7 @@ nes{
 
     const uword PALETTES_PPUADDR = $3f00
 
-    ubyte[256] @shared ppurqbuf ; TODO - this has to be smaller ToT
+    ubyte[128] @shared ppurqbuf ; TODO - this has to be smaller ToT
     ubyte ppurqfi
     ubyte @shared ppurqfo
     ;bool ppurqfull = false ; yeah, it's actually useless, fi and fo can't overlap in any scenario (unless the request buffer is empty)
@@ -213,12 +218,12 @@ nes{
         if ppurqwip or ppurqbuffree() < 4{
             return false
         }
-        ppurqbuf[ppurqfi+1]=msb(ppuaddr)
-        ppurqbuf[ppurqfi+2]=lsb(ppuaddr)
-        ppurqbuf[ppurqfi+3]=value
-        ppurqbuf[ppurqfi+4]=0
+        ppurqbuf[(ppurqfi+1)&127]=msb(ppuaddr)
+        ppurqbuf[(ppurqfi+2)&127]=lsb(ppuaddr)
+        ppurqbuf[(ppurqfi+3)&127]=value
+        ppurqbuf[(ppurqfi+4)&127]=0
         ppurqbuf[ppurqfi]=1
-        ppurqfi+=4
+        ppurqfi=(ppurqfi+4)&127
         return true
     }
 
@@ -227,12 +232,12 @@ nes{
         if ppurqwip or length >63 or ppurqbuffree() < 4{
             return false
         }
-        ppurqbuf[ppurqfi+1]=msb(ppuaddr)
-        ppurqbuf[ppurqfi+2]=lsb(ppuaddr)
-        ppurqbuf[ppurqfi+3]=value
-        ppurqbuf[ppurqfi+4]=0
+        ppurqbuf[(ppurqfi+1)&127]=msb(ppuaddr)
+        ppurqbuf[(ppurqfi+2)&127]=lsb(ppuaddr)
+        ppurqbuf[(ppurqfi+3)&127]=value
+        ppurqbuf[(ppurqfi+4)&127]=0
         ppurqbuf[ppurqfi]=length|$40|((vertical as ubyte)<<7)
-        ppurqfi+=4
+        ppurqfi=(ppurqfi+4)&127
         return true
     }
 
@@ -241,17 +246,17 @@ nes{
         if ppurqwip or length >63 or ppurqbuffree() < length+3{
             return false
         }
-        ppurqbuf[ppurqfi+1]=msb(ppuaddr)
-        ppurqbuf[ppurqfi+2]=lsb(ppuaddr)
-        ppurqfi+=3
+        ppurqbuf[(ppurqfi+1)&127]=msb(ppuaddr)
+        ppurqbuf[(ppurqfi+2)&127]=lsb(ppuaddr)
+        ppurqfi=(ppurqfi+3)&127
         cx16.r0L=0
         while cx16.r0L < length{
-            ppurqbuf[ppurqfi+cx16.r0L]=data[cx16.r0L]
+            ppurqbuf[(ppurqfi+cx16.r0L)&127]=data[cx16.r0L]
             cx16.r0L+=1
         }
-        ppurqbuf[ppurqfi+length]=0
-        ppurqbuf[ppurqfi-3]=length|((vertical as ubyte)<<7)
-        ppurqfi+=length
+        ppurqbuf[(ppurqfi+length)&127]=0
+        ppurqbuf[(ppurqfi-3)&127]=length|((vertical as ubyte)<<7)
+        ppurqfi=(ppurqfi+length)&127
         return true
     }
 
@@ -261,7 +266,7 @@ nes{
         if ppurqfi<ppurqfo{
             return ppurqfo-ppurqfi-1
         }
-        return 255-(ppurqfi-ppurqfo)
+        return len(ppurqbuf)-1-(ppurqfi-ppurqfo)
     }
 
     ubyte ppurqfi_b
@@ -273,22 +278,22 @@ nes{
             return false
         }
         ppurqwip=true
-        ppurqfi_b=ppurqfi+3
-        ppurqbuf[ppurqfi+1]=msb(ppuaddr)
-        ppurqbuf[ppurqfi+2]=lsb(ppuaddr)
+        ppurqfi_b=(ppurqfi+3)&127
+        ppurqbuf[(ppurqfi+1)&127]=msb(ppuaddr)
+        ppurqbuf[(ppurqfi+2)&127]=lsb(ppuaddr)
         ppurqbuf[ppurqfi]= if vertical 128 else 0
         return true
     }
 
     sub ppu_buildrq_push(ubyte value) -> bool{
-        if not ppurqwip or ppurqfi_b+1==ppurqfo{
+        if not ppurqwip or (ppurqfi_b+1)&127==ppurqfo{
             return false
         }
         if ppu_buildrq_len()+1>63{
             return false
         }
         ppurqbuf[ppurqfi_b]=value
-        ppurqfi_b++
+        ppurqfi_b=(ppurqfi_b+1)&127
         return true
     }
 
@@ -308,7 +313,7 @@ nes{
         if ppurqfi<ppurqfi_b {
             return ppurqfi_b-ppurqfi-3
         }
-        return 255-(ppurqfi-ppurqfi_b)-2
+        return len(ppurqbuf)-1-(ppurqfi-ppurqfi_b)-2
     }
 
     ; similar to ppu_sendrq functions, but loads data immediately, outside of VBlank.
