@@ -423,6 +423,8 @@ sys{
     const ubyte SIZEOF_UBYTE = 1
     const ubyte SIZEOF_WORD  = 2
     const ubyte SIZEOF_UWORD = 2
+    const ubyte SIZEOF_LONG  = sizeof(long)
+    const ubyte SIZEOF_POINTER = sizeof(&p8_sys_startup.init_system)
     const byte  MIN_BYTE     = -128
     const byte  MAX_BYTE     = 127
     const ubyte MIN_UBYTE    = 0
@@ -503,7 +505,7 @@ sys{
             rts
 
         _longcopy
-            pha                         ; lsb(count) = remainder in last page
+            sta P8ZP_SCRATCH_B1         ; lsb(count) = remainder in last page
             tya
             tax                         ; x = num pages (1+)
             ldy  #0
@@ -515,7 +517,7 @@ sys{
             inc  cx16.r1+1
             dex
             bne  -
-            ply
+            ldy  P8ZP_SCRATCH_B1
             bne  _copyshort
             rts
         }}
@@ -742,6 +744,18 @@ sys{
         }}
     }
 
+    asmsub get_as_returnaddress(uword address @XY) -> uword @AX {
+        %asm {{
+            ; return the address like JSR would push onto the stack:  address-1,  MSB first then LSB
+            cpx  #0
+            bne  +
+            dey
++           dex
+            tya
+            rts
+        }}
+    }
+
     inline asmsub pop() -> ubyte @A {
         %asm {{
             pla
@@ -754,6 +768,37 @@ sys{
             tay
             pla
         }}
+    }
+
+    inline asmsub pushl(long value @R0R1_32) {
+        %asm {{
+            lda  cx16.r0
+            pha
+            lda  cx16.r0+1
+            pha
+            lda  cx16.r0+2
+            pha
+            lda  cx16.r0+3
+            pha
+        }}
+    }
+
+    inline asmsub popl() -> long @R0R1_32 {
+        %asm {{
+            pla
+            sta  cx16.r0+3
+            pla
+            sta  cx16.r0+2
+            pla
+            sta  cx16.r0+1
+            pla
+            sta  cx16.r0
+        }}
+    }
+
+    sub cpu_is_65816() -> bool {
+        ; Returns true when you have a 65816 cpu, false when it's a 6502.
+        return false
     }
 }
 
@@ -861,6 +906,52 @@ cx16 {
     &byte r14sH = $001f
     &byte r15sH = $0021
 
+     ; signed long versions
+    &long r0r1sl  = $0002
+    &long r2r3sl  = $0006
+    &long r4r5sl  = $000a
+    &long r6r7sl  = $000e
+    &long r8r9sl  = $0012
+    &long r10r11sl = $0016
+    &long r12r13sl = $001a
+    &long r14r15sl = $001e
+
+    ; boolean versions
+    &bool r0bL  = $0002
+    &bool r1bL  = $0004
+    &bool r2bL  = $0006
+    &bool r3bL  = $0008
+    &bool r4bL  = $000a
+    &bool r5bL  = $000c
+    &bool r6bL  = $000e
+    &bool r7bL  = $0010
+    &bool r8bL  = $0012
+    &bool r9bL  = $0014
+    &bool r10bL = $0016
+    &bool r11bL = $0018
+    &bool r12bL = $001a
+    &bool r13bL = $001c
+    &bool r14bL = $001e
+    &bool r15bL = $0020
+
+    &bool r0bH  = $0003
+    &bool r1bH  = $0005
+    &bool r2bH  = $0007
+    &bool r3bH  = $0009
+    &bool r4bH  = $000b
+    &bool r5bH  = $000d
+    &bool r6bH  = $000f
+    &bool r7bH  = $0011
+    &bool r8bH  = $0013
+    &bool r9bH  = $0015
+    &bool r10bH = $0017
+    &bool r11bH = $0019
+    &bool r12bH = $001b
+    &bool r13bH = $001d
+    &bool r14bH = $001f
+    &bool r15bH = $0021
+
+
 
     asmsub save_virtual_registers() clobbers(A,Y) {
         %asm {{
@@ -889,12 +980,6 @@ cx16 {
             rts
         }}
     }
-
-    sub cpu_is_65816() -> bool {
-        ; Returns true when you have a 65816 cpu, false when it's a 6502.
-        return false
-    }
-
 }
 
 p8_sys_startup{
